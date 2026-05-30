@@ -187,10 +187,15 @@ df_4h = resample_ohlcv(df_audusd)
 ### 1. Data Sanity Check
 
 Before any modelling, is the data actually trustworthy? The notebook checks for:
-- **Missing timestamps**: are there gaps at expected bar intervals?
+- **Basic Shape**: is the data the size you expected?
+- **Missing values**: any NaN in any column?
+- **Duplicate timestamps**: a common issue in vendor-provided tick data
+- **Timestamps gaps**: are there gaps at expected time intervals?
 - **Zero-volume bars**: could these represent illiquid periods or data artefacts?
 - **Price outliers**: are there bars where the high-low spread is anomalously wide?
-- **Duplicate timestamps**: a common issue in vendor-provided tick data
+- **OHLC consistency**: does 'high >= low' hold for every bar? If not, something is badly wrong upstream
+- **Volume spikes**: large volume bars worth noting since they often coincide with macro releases that can break ARIMA assumptions
+- **Stale price runs**:  consecutive bars with identical close prices suggest a frozen feed rather than a genuinely flat market
 
 ### 2. Stationarity Testing
 
