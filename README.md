@@ -49,7 +49,7 @@ This capstone project, completed as part of the **QuantInsti Quantitative Learni
 ## Repository Structure
 
 ```
-fx-timeseries-capstone/
+fx-timeseries-forecasting/
 │
 ├── data/
 │   ├── fx_pair_1_5m            # AUD/USD 5-min OHLCV pickle (raw)
@@ -63,20 +63,9 @@ fx-timeseries-capstone/
 │   ├── 04_trade_strategy.ipynb
 │   └── 05_performance_analysis.ipynb
 │
-├── src/
-│   ├── __init__.py
-│   ├── data_utils.py           # Loading, resampling, sanity checks
-│   ├── model_selection.py      # ACF/PACF, ADF test, AIC/BIC grid search
-│   ├── forecasting.py          # ARMA/ARIMA/SARIMA fit and predict wrappers
-│   ├── strategy.py             # Signal generation and position sizing
-│   └── performance.py          # Pyfolio tearsheet helpers
-│
 ├── results/
 │   ├── figures/                # Saved plots (ACF, residuals, equity curves)
 │   └── metrics/                # CSV exports of model diagnostics and returns
-│
-├── tests/
-│   └── test_data_utils.py
 │
 ├── DataSheet.md
 ├── requirements.txt
@@ -189,25 +178,6 @@ def resample_ohlcv(df, freq="4h"):
     }).dropna()
 
 df_4h = resample_ohlcv(df_audusd)
-```
-
-### Running the full pipeline via src modules
-
-```python
-from src.data_utils import load_and_resample, run_sanity_checks
-from src.model_selection import select_model_order
-from src.forecasting import fit_and_forecast
-from src.strategy import generate_signals, compute_returns
-from src.performance import run_tearsheet
-
-df = load_and_resample("data/fx_pair_1_5m", freq="4h")
-run_sanity_checks(df)
-
-order, model_type = select_model_order(df["close"])
-forecasts = fit_and_forecast(df["close"], order=order, model_type=model_type)
-
-returns = compute_returns(generate_signals(df["close"], forecasts))
-run_tearsheet(returns)
 ```
 
 ---
