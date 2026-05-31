@@ -62,8 +62,8 @@ fx-timeseries-forecasting/
 │   ├── 02_stationarity_and_model_selection.ipynb
 │   ├── 03_model_fitting_and_forecasting.ipynb
 │   ├── 03_1_model_fitting_and_forecasting.ipynb  # ARIMA–GARCH ensemble extension
-│   ├── 04_trade_strategy.ipynb
-│   └── 05_performance_analysis.ipynb
+│   └── 04_trade_strategy.ipynb
+│   
 │
 ├── results/
 │   ├── figures/                # Saved plots (ACF, residuals, equity curves)
