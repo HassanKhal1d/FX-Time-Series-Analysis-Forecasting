@@ -67,7 +67,7 @@ fx-timeseries-forecasting/
 │
 ├── results/
 │   ├── figures/                # Saved plots (ACF, residuals, equity curves)
-│   └── metrics/                # CSV exports of model diagnostics and returns
+│   └── Results.md              # CSV exports of model diagnostics and returns
 │
 ├── DataSheet.md
 ├── requirements.txt
