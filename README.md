@@ -236,11 +236,13 @@ A **GARCH(1,1) Normal** model was selected for both pairs via AIC grid search ov
 
 Three ensemble enhancements were constructed on top of the ARIMA conditional mean:
 
-| Enhancement | Description | Outcome |
-|-------------|-------------|---------|
-| Dynamic confidence intervals | Replace static ARIMA σ with GARCH-forecast conditional vol | CI calibration improves; narrows in calm regimes, widens in turbulent ones |
-| Volatility-filtered signal | Suppress trades when GARCH vol exceeds 50th/65th/80th percentile of training vol | Directional accuracy improves by ~1–3 pp on the filtered subset |
-| Volatility-scaled signal strength | Weight signal by reciprocal of conditional vol | Provides a continuous sizing variable for downstream position management |
+| Enhancement | Description | AUD/USD Outcome | EUR/USD Outcome |
+|-------------|-------------|-----------------|-----------------|
+| Dynamic confidence intervals | Replace static ARIMA σ with GARCH-forecast conditional vol | Hit-rate 93.89% vs static 82.37% — closer to nominal 95% ✓ | Hit-rate 93.25% vs static 86.43% ✓ |
+| Volatility-filtered signal | Suppress trades when GARCH vol exceeds 50th/65th/80th training percentile | DA falls to 30–33% across all thresholds (worse than baseline 36.96%) ✗ | DA falls to 33–35% across all thresholds (worse than baseline 38.29%) ✗ |
+| Volatility-scaled signal strength | Weight signal by reciprocal of conditional vol | DA unchanged at 36.96% — direction unchanged by scaling | DA unchanged at 38.29% |
+
+> **Key finding**: The volatility filter consistently *worsened* directional accuracy for both pairs, reducing the trading universe to the subset of bars where the model is most confident but apparently least correct. The only genuine ensemble benefit is CI calibration — the GARCH dynamic CI closes the coverage gap left by the static ARIMA interval.
 
 ### 5. Trade Strategy
 
@@ -263,12 +265,51 @@ Does the strategy actually make money -- and on a risk-adjusted basis? We evalua
 
 ## Results
 
-Results vary by pair and model configuration. Full outputs are saved in `results/`. A summary table will be populated here after the final model run.
+Full outputs are saved in `results/`. For the complete breakdown of every diagnostic, test statistic, and metric, see [`results/RESULTS.md`](./results/RESULTS.md).
 
-| Pair | Best Model | AIC | Sharpe Ratio | Max Drawdown |
-|------|-----------|-----|-------------|-------------|
-| AUD/USD | ARIMA(2,1,0) + GARCH(1,1) | TBD | TBD | TBD |
-| EUR/USD | ARIMA(0,1,1) + GARCH(1,1) | TBD | TBD | TBD |
+**Model Selection (Notebook 02 — BIC-optimal)**
+
+| Pair | Selected Model | BIC (selection grid) | In-sample AIC | In-sample BIC | Ljung-Box |
+|------|---------------|---------------------|---------------|---------------|-----------|
+| AUD/USD | ARIMA(2,1,0) | −45,682.15 | −33,431.19 | −33,412.90 | 0/40 lags (OK) |
+| EUR/USD | ARIMA(0,1,1) | −43,350.37 | −32,637.83 | −32,625.56 | 0/40 lags (OK) |
+
+**Out-of-Sample Forecast Accuracy (Notebook 03 — expanding window)**
+
+| Pair | MAE | RMSE | MAPE | Directional Accuracy |
+|------|-----|------|------|---------------------|
+| AUD/USD | 0.001586 | 0.002516 | 0.2344% | **36.96%** ⚠️ |
+| EUR/USD | 0.001857 | 0.002989 | 0.1372% | **36.84%** ⚠️ |
+
+> ⚠️ **Critical finding**: Directional accuracy of ~37% is significantly *below* the 50% random baseline, meaning the ARIMA signal is a contrarian indicator in direction. The negative AR(1) coefficient in AUD/USD (−0.054) and the negative MA(1) in EUR/USD (−0.013) both impose slight mean-reversion predictions that are systematically overridden by short-term momentum in the actual price series. See Limitations for the full discussion.
+
+**GARCH Volatility Model (Notebook 03.1)**
+
+| Pair | Selected GARCH | Persistence (α+β) | In-sample ann. vol (mean) | Test-period ann. vol (mean) | GARCH–Realised corr. |
+|------|---------------|-------------------|--------------------------|----------------------------|----------------------|
+| AUD/USD | GARCH(1,1) Normal | 0.995 | 7.93% | 12.31% | 0.9563 |
+| EUR/USD | GARCH(1,1) Normal | 0.980 | 6.03% | 7.52% | 0.9692 |
+
+**Strategy Performance (Notebook 04 — rolling 500-bar window, pyfolio tearsheet)**
+
+| Metric | AUD/USD | EUR/USD |
+|--------|---------|---------|
+| Backtest period | Jun 2020 – Jan 2021 | Jun 2020 – Jan 2021 |
+| Annual return | **4.795%** | **1.622%** |
+| Cumulative return | 4.174% | 1.415% |
+| Annual volatility | 7.861% | 5.805% |
+| **Sharpe ratio** | **0.63** | **0.31** |
+| Calmar ratio | 0.66 | 0.33 |
+| Sortino ratio | 0.96 | 0.44 |
+| Max drawdown | −7.273% | −4.973% |
+| Stability | 0.54 | 0.52 |
+| Omega ratio | 1.13 | 1.06 |
+| Tail ratio | 1.04 | 1.08 |
+| Daily VaR | −0.971% | −0.724% |
+| Skew | 0.21 | −0.01 |
+| Kurtosis | 1.04 | 3.10 |
+
+> **Note on DA vs returns**: The positive Sharpe ratios despite sub-50% directional accuracy arise from a methodological difference between notebooks. Notebook 03 measures direction relative to the previous bar's close (strict accuracy test). Notebook 04 uses a rolling 500-bar refit and compares the 1-step forecast to the *current* close, generating a signal that captures the tail of medium-term price displacements more effectively than bar-to-bar direction prediction. The two approaches are not directly comparable.
 
 ---
 
@@ -293,53 +334,57 @@ The pyfolio tearsheet outputs the following. How many of these does the strategy
 
 The following limitations are grounded in diagnostics observed across the project notebooks.
 
-#### 1. Heteroscedastic Residuals (ARCH Effects)
+#### 1. Sub-50% Directional Accuracy — The Model Is a Contrarian Indicator
 
-The ARIMA model assumes homoscedastic (constant-variance) innovations. Both pairs fail this assumption decisively: the Engle ARCH-LM test returns **p ≈ 0** at every lag window tested, and the ACF of squared residuals shows significant clustering. The practical consequence is that the static 95% confidence interval produced by ARIMA — derived from a single constant σ — is systematically miscalibrated: too wide in calm regimes (causing over-caution) and dangerously too narrow in volatile ones (understating true risk).
+The most important finding from notebook 03 is that both ARIMA models produce directional accuracy of approximately **37%** out-of-sample — well below the 50% random baseline. This means the model's predicted direction is *wrong* more often than not. The negative AR(1) coefficient in AUD/USD (ar.L1 = −0.054, p < 0.001) imposes a slight mean-reversion bias: after any upward bar, the model nudges the forecast lower; after any downward bar, it nudges higher. When the actual series exhibits short-term momentum — which FX at 4-hour frequency frequently does — this systematic mean-reversion prediction produces consistent directional errors.
 
-The ARIMA–GARCH ensemble in notebook 03.1 partially addresses this through dynamic confidence intervals, but the benefit is limited by EUR/USD's near-integrated volatility persistence (α+β ≈ 0.99), which makes the GARCH model structurally difficult to calibrate for that pair.
+For EUR/USD, the MA(1) coefficient (ma.L1 = −0.013) is statistically insignificant (p = 0.388), meaning the model is functionally a random walk. Yet DA still falls to 37%, slightly below chance, likely because even the near-zero MA coefficient imparts a small mean-reversion bias sufficient to mismatch the actual return distribution.
 
-#### 2. Near-IGARCH Dynamics in EUR/USD
+The practical implication is that the *inverse* of the ARIMA direction signal would achieve approximately 63% directional accuracy on this sample. This is not a recommendation to flip the signal (that would be curve-fitting the test set), but it does tell us that the signal as constructed has measurably negative predictive content for direction, and that any strategy built on it needs to be interrogated much more carefully than its positive Sharpe ratio in notebook 04 suggests.
 
-EUR/USD exhibits volatility persistence so close to unity that standard single-regime GARCH variants cannot achieve a clean Ljung-Box pass on squared standardised residuals. This is consistent with the known near-IGARCH behaviour of major FX pairs at intraday frequency, where volatility shocks decay extremely slowly. The implication is that the conditional variance for EUR/USD is best described as a process with time-varying regime structure, rather than a single mean-reverting GARCH process. A Markov-switching GARCH or an IGARCH model would be more appropriate.
+#### 2. Heteroscedastic Residuals (ARCH Effects)
 
-#### 3. Pure Price Model — No Exogenous Information
+The ARIMA model assumes homoscedastic (constant-variance) innovations. Both pairs fail this assumption decisively: the Engle ARCH-LM test returns **p ≈ 0** at lags 10 and 20 for both pairs (AUD/USD also at lag 5; EUR/USD is borderline at lag 5 with p = 0.195 but significant thereafter). Return excess kurtosis of 61.5 for AUD/USD and 9.9 for EUR/USD confirms fat tails that a Normally-distributed ARIMA innovation cannot represent. The ARIMA–GARCH dynamic CI improves hit-rate to 93.9% (AUD/USD) and 93.3% (EUR/USD), compared to the static CI's 82.4% and 86.4%.
 
-Both ARIMA and GARCH are purely backward-looking models that condition only on the lagged price series. They contain no information about the fundamental drivers of FX returns: interest rate differentials between the currency pair's constituent economies, macroeconomic data surprises (CPI, NFP, PMI), central bank communication, or broad risk sentiment proxies such as the VIX or commodity prices. These factors are known to be the primary drivers of FX direction over multi-hour horizons, which is precisely the forecast horizon used here.
+#### 3. Near-IGARCH Dynamics in EUR/USD — No GARCH Variant Passes Diagnostic Tests
 
-This is a structural limitation: no amount of lag-order tuning can allow an ARIMA model to anticipate a surprise inflation print or a central bank pivot that the model has no knowledge of.
+EUR/USD exhibits volatility persistence of α+β = 0.98. Every GARCH variant tested — GARCH, EGARCH, GJR-GARCH, with both Normal and Student-t innovations — fails the Ljung-Box test on squared standardised residuals (all p < 0.05), meaning no single-regime GARCH model fully captures the variance dynamics of this pair. The conditional vol tracks realised vol well (correlation 0.969) but statistical adequacy of the model is compromised throughout. A Markov-switching GARCH or IGARCH model would be structurally more appropriate.
 
-#### 4. Static Model Parameters — No Adaptation to Structural Change
+#### 4. Pure Price Model — No Exogenous Information
 
-Both ARIMA and GARCH are fit once on the training set (or on a rolling 500-bar window in notebook 04) and then applied in fixed form to the test period. The dataset spans January 2018 to January 2021 — a period that includes a regime shift of unusual severity in March–April 2020, when COVID-related volatility caused AUD/USD to fall from 0.67 to 0.57 in approximately two weeks. The rolling forecast error plots in notebook 03 show a pronounced spike in absolute error during this period.
+Both ARIMA and GARCH are purely backward-looking models that condition only on the lagged price series. They contain no information about the fundamental drivers of FX returns: interest rate differentials, macroeconomic data surprises (CPI, NFP, PMI), central bank communication, or broad risk sentiment proxies such as the VIX. No amount of lag-order tuning can allow an ARIMA model to anticipate a surprise inflation print or a central bank pivot.
 
-A model with fixed AR/MA coefficients cannot adapt to regime changes of this magnitude. Time-varying parameters (via Kalman filtering or recursive updating) or explicit regime-switching approaches would handle this more gracefully.
+#### 5. Static Model Parameters — No Adaptation to Structural Change
 
-#### 5. Undifferentiated Binary Signal — No Conviction Gating
+The rolling forecast error plots confirm a sharp model breakdown during March 2020: the 30-bar rolling MAE for AUD/USD peaks at approximately 0.006 — four times its baseline of ~0.0015 — as annualised realised volatility briefly exceeded 60%. EUR/USD shows a near-identical spike to 0.006 MAE, with the two error series tracking each other closely throughout the test period. Fixed AR/MA coefficients cannot adapt to regime changes of this magnitude.
 
-The trade strategy in notebook 04 generates a long or short signal for every single bar, regardless of how small the predicted price move is. When the ARIMA forecast differs from the current close by, say, 0.00003 (three pips), it generates the same position size as a forecast that differs by 0.0015. In a real deployment this is untenable: it generates maximum turnover and transaction cost drag on the weakest, least reliable signals.
+#### 6. Volatility Filter Worsens Directional Accuracy
 
-The ARIMA–GARCH ensemble introduces a `vol_filter_mask` that suppresses the weakest signals, and a `signal_strength` variable that could be used for continuous position sizing, but neither is wired into the notebook 04 strategy. The base strategy remains binary without any minimum-conviction threshold.
+The ARIMA–GARCH ensemble predicted that suppressing trades in high-volatility periods would improve directional accuracy. The actual results show the opposite: for AUD/USD, the baseline DA of 37.0% falls to 30.6%/28.0%/32.9% at the 50th/65th/80th GARCH volatility percentile thresholds (deterioration of 4–9 pp). For EUR/USD, baseline DA of 38.3% falls to 33.0%/35.4%/34.4% respectively. At the 65th percentile filter for AUD/USD, only 8% of test bars are traded and those bars have the *worst* DA of any subset. The signal quality does not improve in low-volatility periods.
 
-#### 6. No Transaction Costs or Spread
+#### 7. Undifferentiated Binary Signal — No Conviction Gating
 
-The strategy performance is measured on raw close-to-close returns with no bid-ask spread, no broker commission, and no slippage. For 4-hour bars the spread impact is relatively modest, but the strategy can still flip positions on every bar, generating a large number of round trips. In practice, a typical institutional EUR/USD spread of 0.5–1 pip and AUD/USD spread of 0.8–1.5 pips would meaningfully erode returns, particularly during periods of elevated volatility when spreads widen.
+The trade strategy generates a long or short signal for every bar regardless of how small the predicted move is, with no minimum-conviction threshold. The vol-scaled `signal_strength` variable from the GARCH ensemble produces identical directional accuracy (36.96% and 38.29%) to the unscaled baseline because scaling does not change signal direction.
 
-#### 7. Univariate Modelling of Correlated Pairs
+#### 8. No Transaction Costs or Spread
 
-AUD/USD and EUR/USD share a common USD leg, meaning their returns and volatilities are time-varying correlated. The current project fits each pair independently, discarding cross-pair information. During the March 2020 episode, for example, the USD strengthened sharply against both currencies simultaneously — information about the magnitude and timing of the EUR/USD move contains genuine predictive signal for AUD/USD, and vice versa. A multivariate VAR or DCC-GARCH framework would exploit this relationship.
+Performance is measured on raw returns with no bid-ask spread, commission, or slippage. A typical institutional EUR/USD spread of 0.5–1 pip and AUD/USD spread of 0.8–1.5 pips — widening further during the high-volatility March 2020 period — would meaningfully erode the modest returns shown in the pyfolio tearsheets.
 
-#### 8. Unexploited OHLCV Information
+#### 9. Univariate Modelling of Correlated Pairs
 
-The sanity check notebook validates the high, low, open, and volume columns but the modelling pipeline uses only the close price. The high-low range (a proxy for intrabar volatility), the open-to-close return (body direction), the close-to-open gap at bar boundaries, and the volume series all carry information about price dynamics and institutional activity. HAR-type models specifically exploit multi-period realised variance measures derived from the OHLC data.
+AUD/USD and EUR/USD share a common USD leg. The current project fits each pair independently, discarding cross-pair information. During the March 2020 USD strengthening episode, both pairs moved simultaneously — information that a multivariate VAR or DCC-GARCH framework would exploit.
 
-#### 9. Rolling vs Expanding Window Inconsistency
+#### 10. Unexploited OHLCV Information
 
-Notebook 03 uses an expanding-window approach via statsmodels `.apply()`, which leverages all available history at each step. Notebook 04 uses a rolling 500-bar window, refitting the ARIMA model from scratch at every step. These two approaches will produce different forecasts and were not directly compared. The rolling window risks parameter instability in the early test period (when 500 bars is a large fraction of the available data) but may generalise better across the structural break in 2020 than the expanding window.
+The modelling pipeline uses only the close price. The high-low range, open-to-close return, close-to-open gap, and volume series — all validated in notebook 01 — carry signal orthogonal to the close price series. HAR-type models specifically exploit multi-period realised variance measures derived from OHLC data.
 
-#### 10. Data Ends January 2021
+#### 11. Rolling vs Expanding Window Inconsistency
 
-The dataset terminates before the post-pandemic FX regime — a period characterised by high inflation surprises, rapid interest rate divergence between the Fed and RBA/ECB, and pronounced trends in both AUD/USD and EUR/USD. There is no out-of-sample evidence that the model generalises beyond the 2018–2021 sample period.
+Notebook 03 uses an expanding-window approach via `.apply()`; notebook 04 uses a rolling 500-bar window with full refitting at every step. These two methodologies produce different forecasts and were not directly compared. The disconnect partly explains why notebook 04 shows positive Sharpe despite notebook 03's sub-50% directional accuracy.
+
+#### 12. Data Ends January 2021
+
+The dataset terminates before the post-pandemic FX regime — high inflation surprises, rapid interest rate divergence between the Fed and RBA/ECB, and pronounced trends in both pairs. There is no evidence the model generalises beyond the 2018–2021 sample.
 
 ---
 
